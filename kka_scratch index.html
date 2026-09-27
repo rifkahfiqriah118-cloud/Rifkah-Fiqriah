@@ -1,0 +1,1954 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Petualangan Koding Scratch - Media Interaktif PID</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts Inter & Fredoka for playful Scratch aesthetic -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, collection, onSnapshot, getDocs, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+
+        let db = null;
+        let auth = null;
+        let user = null;
+
+        // Initialize real-time synchronization
+        window.initCloudSync = async function() {
+            if (!firebaseConfig) return;
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    user = (await signInWithCustomToken(auth, __initial_auth_token)).user;
+                } else {
+                    user = (await signInAnonymously(auth)).user;
+                }
+
+                listenToCloudGrades();
+            } catch (e) {
+                console.warn("Cloud sync running in local mode:", e);
+            }
+        };
+
+        // Save student's summative grade from individual devices to the shared PID board
+        window.saveGradeToCloud = async function(gradeData) {
+            if (!db || !user) return;
+            try {
+                const docId = `student_${gradeData.no}_${Date.now()}`;
+                const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'summative_results', docId);
+                await setDoc(docRef, gradeData);
+            } catch (e) {
+                console.error("Gagal mengirim nilai ke papan PID:", e);
+            }
+        };
+
+        // Listen for real-time student submissions across all devices
+        function listenToCloudGrades() {
+            if (!db || !user) return;
+            const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'summative_results');
+            onSnapshot(colRef, (snapshot) => {
+                const remoteGrades = [];
+                snapshot.forEach(docSnap => {
+                    remoteGrades.push(docSnap.data());
+                });
+                remoteGrades.sort((a, b) => parseInt(a.no || 0) - parseInt(b.no || 0));
+                window.classGradesList = remoteGrades;
+                if (typeof window.renderClassGradesTable === 'function') {
+                    window.renderClassGradesTable();
+                }
+            }, (error) => {
+                console.error("Realtime connection error:", error);
+            });
+        }
+
+        // Clear all synced scores
+        window.clearCloudGrades = async function() {
+            if (!db || !user) return;
+            try {
+                const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'summative_results');
+                const docsSnap = await getDocs(colRef);
+                docsSnap.forEach(async (d) => {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'summative_results', d.id));
+                });
+            } catch (e) {
+                console.error("Gagal membersihkan data cloud:", e);
+            }
+        };
+    </script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        display: ['Fredoka', 'sans-serif'],
+                    },
+                    colors: {
+                        scratch: {
+                            orange: '#FFAB19',
+                            blue: '#4C97FF',
+                            purple: '#9966FF',
+                            yellow: '#FFBF00',
+                            green: '#5CB85C',
+                            dark: '#1E293B',
+                            light: '#F8FAFC'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+        }
+
+        .font-display {
+            font-family: 'Fredoka', cursive, sans-serif;
+        }
+
+        .touch-btn {
+            min-height: 52px;
+            touch-action: manipulation;
+        }
+
+        .scratch-block {
+            box-shadow: 0 4px 0 rgba(0,0,0,0.18);
+            transition: all 0.15s ease;
+        }
+        .scratch-block:active {
+            transform: translateY(2px);
+            box-shadow: 0 2px 0 rgba(0,0,0,0.18);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 8px;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px rgba(239, 68, 68, 0.5); }
+            50% { box-shadow: 0 0 25px rgba(239, 68, 68, 0.9); }
+        }
+        .glow-active {
+            animation: pulse-glow 1.5s infinite;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col justify-between overflow-x-hidden">
+
+    <!-- TOP HEADER / NAV BAR -->
+    <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            
+            <div class="flex items-center space-x-3">
+                <div class="bg-scratch-orange text-white p-2.5 rounded-2xl flex items-center justify-center font-display text-2xl font-bold shadow-md">
+                    <i class="fa-solid fa-code"></i>
+                </div>
+                <div>
+                    <h1 class="font-display text-xl sm:text-2xl font-bold text-scratch-orange tracking-wide flex items-center gap-2">
+                        Scratch Interactive PID Lab
+                    </h1>
+                    <p class="text-xs text-slate-300 font-medium">KKA Kelas VII • Pemrograman Visual Berbasis Blok (Fase D)</p>
+                </div>
+            </div>
+
+            <!-- Group / Team Score Bar -->
+            <div class="flex items-center bg-slate-800 rounded-2xl p-1.5 border border-slate-700">
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400 px-3 hidden sm:inline">Kelompok Aktif & Skor:</span>
+                <div class="flex space-x-1" id="group-score-bar">
+                    <!-- Dynamic Team Buttons JS -->
+                </div>
+            </div>
+
+            <!-- Utility Controls & TP Button -->
+            <div class="flex items-center space-x-2">
+                <button onclick="toggleTPModal()" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold font-display transition flex items-center space-x-1.5 shadow" title="Tujuan Pembelajaran">
+                    <i class="fa-solid fa-graduation-cap text-base"></i>
+                    <span class="hidden md:inline">Tujuan Pembelajaran (TP)</span>
+                </button>
+                <button onclick="toggleSound()" id="sound-btn" class="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl text-yellow-400 transition" title="Mute/Unmute Audio">
+                    <i class="fa-solid fa-volume-high text-lg"></i>
+                </button>
+                <button onclick="toggleFullscreen()" class="p-3 bg-slate-800 hover:bg-slate-700 rounded-xl text-slate-200 transition" title="Layar Penuh PID">
+                    <i class="fa-solid fa-expand text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- MODULE TABS NAV -->
+        <nav class="bg-slate-800 px-4 pt-2 border-t border-slate-700/50">
+            <div class="max-w-7xl mx-auto flex space-x-2 overflow-x-auto pb-2 scrollbar-none">
+                <button onclick="switchModule(1)" id="tab-mod-1" class="tab-btn px-5 py-2.5 rounded-xl font-display font-semibold text-sm sm:text-base flex items-center space-x-2 whitespace-nowrap transition bg-scratch-orange text-white shadow-md">
+                    <i class="fa-solid fa-desktop"></i>
+                    <span>Modul 1: Antarmuka & Kategori Blok</span>
+                </button>
+                <button onclick="switchModule(2)" id="tab-mod-2" class="tab-btn px-5 py-2.5 rounded-xl font-display font-semibold text-sm sm:text-base flex items-center space-x-2 whitespace-nowrap transition bg-slate-700 text-slate-300 hover:bg-slate-600">
+                    <i class="fa-solid fa-puzzle-piece"></i>
+                    <span>Modul 2: Sekuens & Puzzle Logika</span>
+                </button>
+                <button onclick="switchModule(3)" id="tab-mod-3" class="tab-btn px-5 py-2.5 rounded-xl font-display font-semibold text-sm sm:text-base flex items-center space-x-2 whitespace-nowrap transition bg-slate-700 text-slate-300 hover:bg-slate-600">
+                    <i class="fa-solid fa-bug"></i>
+                    <span>Modul 3: Debugging Lab</span>
+                </button>
+                <button onclick="switchModule(4)" id="tab-mod-4" class="tab-btn px-5 py-2.5 rounded-xl font-display font-semibold text-sm sm:text-base flex items-center space-x-2 whitespace-nowrap transition bg-slate-700 text-slate-300 hover:bg-slate-600">
+                    <i class="fa-solid fa-trophy"></i>
+                    <span>Modul 4: Kuis Arena Kelompok (20 Soal)</span>
+                </button>
+                <button onclick="switchModule(5)" id="tab-mod-5" class="tab-btn px-5 py-2.5 rounded-xl font-display font-semibold text-sm sm:text-base flex items-center space-x-2 whitespace-nowrap transition bg-slate-700 text-slate-300 hover:bg-slate-600">
+                    <i class="fa-solid fa-user-check"></i>
+                    <span>Modul 5: Asesmen Sumatif Individu (10 Soal)</span>
+                </button>
+            </div>
+        </nav>
+    </header>
+
+    <!-- TUJUAN PEMBELAJARAN (TP) MODAL -->
+    <div id="tp-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 transform transition-all">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div class="flex items-center space-x-2.5 text-emerald-700 font-display font-bold text-xl">
+                    <i class="fa-solid fa-graduation-cap text-2xl text-emerald-600"></i>
+                    <span>Tujuan Pembelajaran (TP)</span>
+                </div>
+                <button onclick="toggleTPModal()" class="text-slate-400 hover:text-slate-700 text-xl font-bold p-1">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div class="py-4 space-y-3">
+                <span class="bg-emerald-100 text-emerald-800 text-xs font-bold px-3 py-1 rounded-full uppercase">Informatika / KKA Kelas VII (Fase D)</span>
+                <p class="text-slate-700 text-sm leading-relaxed bg-slate-50 p-4 rounded-2xl border border-slate-200 font-medium">
+                    "Melalui kegiatan pengamatan dan praktik langsung menggunakan Scratch, peserta didik mampu mengenal antarmuka pemrograman visual berbasis blok (Sprite, Stage, Palette Blok, Script Area), menyusun rangkaian blok perintah sederhana untuk menggerakkan, menyuarakan, atau membuat karakter merespons input, serta melakukan pengujian dan perbaikan (debugging) sederhana terhadap program yang dibuat secara logis dan bertanggung jawab."
+                </p>
+                <div class="grid grid-cols-2 gap-2 text-xs font-semibold text-slate-600 pt-1">
+                    <div class="bg-blue-50 p-2.5 rounded-xl border border-blue-100 text-blue-900">
+                        <i class="fa-solid fa-check-circle text-scratch-blue mr-1"></i> Mengenal Antarmuka Utama
+                    </div>
+                    <div class="bg-purple-50 p-2.5 rounded-xl border border-purple-100 text-purple-900">
+                        <i class="fa-solid fa-check-circle text-scratch-purple mr-1"></i> Menyusun Sekuens Algoritma
+                    </div>
+                    <div class="bg-amber-50 p-2.5 rounded-xl border border-amber-100 text-amber-900">
+                        <i class="fa-solid fa-check-circle text-amber-600 mr-1"></i> Penggunaan Pemicu (Events)
+                    </div>
+                    <div class="bg-rose-50 p-2.5 rounded-xl border border-rose-100 text-rose-900">
+                        <i class="fa-solid fa-check-circle text-rose-600 mr-1"></i> Deteksi & Debugging Error
+                    </div>
+                </div>
+            </div>
+
+            <div class="pt-3 border-t border-slate-100 text-right">
+                <button onclick="toggleTPModal()" class="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl font-display transition">
+                    Tutup Informasi
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT CONTAINER -->
+    <main class="max-w-7xl mx-auto px-4 py-6 flex-grow w-full">
+
+        <!-- GLOBAL TOAST NOTIFICATION -->
+        <div id="toast" class="fixed top-24 right-5 z-50 transform translate-x-full transition-transform duration-300 max-w-md bg-slate-900 text-white p-4 rounded-2xl shadow-2xl border-l-8 border-scratch-orange flex items-center space-x-3 pointer-events-none">
+            <div id="toast-icon" class="text-2xl text-scratch-yellow">
+                <i class="fa-solid fa-circle-check"></i>
+            </div>
+            <div>
+                <h4 id="toast-title" class="font-bold text-sm">Informasi</h4>
+                <p id="toast-msg" class="text-xs text-slate-300">Pesan instruksi interaktif.</p>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- MODUL 1: ANTARMUKA & EKSPLORASI BLOK -->
+        <!-- ========================================== -->
+        <section id="module-1" class="module-section">
+            <div class="bg-white rounded-3xl p-6 shadow-xl border border-slate-200">
+                
+                <!-- Sub Module Switcher Header -->
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
+                    <div>
+                        <span class="bg-amber-100 text-amber-800 font-bold text-xs uppercase px-3 py-1 rounded-full">Modul 1 • Pengenalan Scratch</span>
+                        <h2 class="font-display text-2xl sm:text-3xl font-bold text-slate-800 mt-1">Pengenalan Antarmuka & Kategori Blok</h2>
+                        <p class="text-slate-600 text-sm mt-0.5">Pelajari bagian-bagian layar utama Scratch dan fungsi kategori warna blok.</p>
+                    </div>
+
+                    <!-- Sub-tabs for Module 1 -->
+                    <div class="flex bg-slate-100 p-1.5 rounded-2xl border border-slate-200 self-stretch sm:self-auto">
+                        <button onclick="switchMod1SubTab('interface')" id="subtab-interface" class="flex-1 sm:flex-none px-4 py-2 rounded-xl font-display font-bold text-xs sm:text-sm transition bg-scratch-orange text-white shadow">
+                            <i class="fa-solid fa-window-restore mr-1.5"></i>1A. Antarmuka Scratch
+                        </button>
+                        <button onclick="switchMod1SubTab('categories')" id="subtab-categories" class="flex-1 sm:flex-none px-4 py-2 rounded-xl font-display font-bold text-xs sm:text-sm transition text-slate-600 hover:text-slate-900">
+                            <i class="fa-solid fa-shapes mr-1.5"></i>1B. Match Kategori Blok
+                        </button>
+                    </div>
+                </div>
+
+                <!-- SUB-MODUL 1A: INTERACTIVE SCRATCH INTERFACE DIAGRAM -->
+                <div id="mod1-sub-interface" class="space-y-6">
+                    <div class="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center justify-between gap-4 text-amber-900 text-xs sm:text-sm">
+                        <div class="flex items-center space-x-3">
+                            <i class="fa-solid fa-hand-pointer text-scratch-orange text-2xl"></i>
+                            <span><strong>Petunjuk PID:</strong> Sentuh area berwarna pada diagram simulator editor Scratch di bawah ini untuk mempelajari fungsi masing-masing komponen antarmuka!</span>
+                        </div>
+                    </div>
+
+                    <!-- Simulated Scratch GUI Mockup Diagram -->
+                    <div class="bg-slate-900 rounded-2xl p-3 sm:p-4 text-white shadow-2xl overflow-x-auto border-2 border-slate-800">
+                        <!-- Top Toolbar Mockup -->
+                        <div id="gui-part-toolbar" onclick="inspectInterfacePart('toolbar')" class="bg-slate-800 p-2.5 rounded-xl mb-3 flex items-center justify-between border-2 border-transparent hover:border-yellow-400 cursor-pointer transition group">
+                            <div class="flex items-center space-x-3">
+                                <div class="bg-scratch-orange text-slate-900 font-display font-bold px-2.5 py-1 rounded-lg text-xs">Scratch GUI</div>
+                                <span class="text-xs font-semibold text-slate-300 hidden sm:inline">File &bull; Edit &bull; Tutorial</span>
+                            </div>
+                            <div class="flex items-center space-x-2">
+                                <span class="text-xs bg-slate-700 px-2 py-1 rounded text-slate-300">Proyek: KKA_Kelas7</span>
+                                <span class="bg-yellow-400 text-slate-900 font-bold text-[10px] uppercase px-2 py-0.5 rounded-full group-hover:scale-105 transition">1. Menu & Toolbar (Klik)</span>
+                            </div>
+                        </div>
+
+                        <!-- Main Editor Body Layout Grid -->
+                        <div class="grid grid-cols-12 gap-3 min-w-[700px]">
+                            <!-- Left: Block Palette -->
+                            <div id="gui-part-palette" onclick="inspectInterfacePart('palette')" class="col-span-3 bg-slate-800 p-3 rounded-xl border-2 border-transparent hover:border-blue-400 cursor-pointer transition relative group min-h-[260px] flex flex-col justify-between">
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-xs font-bold text-blue-400"><i class="fa-solid fa-icons mr-1"></i>Palette Blok</span>
+                                        <span class="bg-blue-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">2</span>
+                                    </div>
+                                    <div class="space-y-1.5 text-[10px] font-bold">
+                                        <div class="bg-blue-500 p-1.5 rounded text-white flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-white"></span><span>Gerak (Motion)</span></div>
+                                        <div class="bg-purple-500 p-1.5 rounded text-white flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-white"></span><span>Tampilan (Looks)</span></div>
+                                        <div class="bg-pink-500 p-1.5 rounded text-white flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-white"></span><span>Suara (Sound)</span></div>
+                                        <div class="bg-amber-500 p-1.5 rounded text-white flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-white"></span><span>Kejadian (Events)</span></div>
+                                        <div class="bg-orange-500 p-1.5 rounded text-white flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-white"></span><span>Kontrol (Control)</span></div>
+                                    </div>
+                                </div>
+                                <div class="text-[10px] text-slate-400 italic text-center pt-2 border-t border-slate-700">Katalog Potongan Kode</div>
+                            </div>
+
+                            <!-- Middle: Script Area / Workspace -->
+                            <div id="gui-part-workspace" onclick="inspectInterfacePart('workspace')" class="col-span-5 bg-slate-950 p-3 rounded-xl border-2 border-dashed border-purple-500/50 hover:border-purple-400 cursor-pointer transition relative group min-h-[260px] flex flex-col justify-between">
+                                <div>
+                                    <div class="flex items-center justify-between mb-2">
+                                        <span class="text-xs font-bold text-purple-300"><i class="fa-solid fa-layer-group mr-1"></i>Script Area (Area Kerja)</span>
+                                        <span class="bg-purple-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">3</span>
+                                    </div>
+                                    <div class="space-y-1.5 opacity-90">
+                                        <div class="bg-amber-500 text-slate-900 font-bold p-2 rounded-lg text-[10px]">ketika bendera hijau diklik</div>
+                                        <div class="bg-blue-500 text-white font-bold p-2 rounded-lg text-[10px] ml-2">pindah 10 langkah</div>
+                                        <div class="bg-purple-500 text-white font-bold p-2 rounded-lg text-[10px] ml-2">katakan "Halo!"</div>
+                                    </div>
+                                </div>
+                                <div class="text-[10px] text-purple-300/70 italic text-center pt-2 border-t border-slate-800">Tempat Menyusun Blok Koding</div>
+                            </div>
+
+                            <!-- Right Stack: Stage & Sprite Panel -->
+                            <div class="col-span-4 flex flex-col space-y-3">
+                                <!-- Stage Area -->
+                                <div id="gui-part-stage" onclick="inspectInterfacePart('stage')" class="bg-white text-slate-800 p-3 rounded-xl border-2 border-transparent hover:border-green-500 cursor-pointer transition relative group flex-grow flex flex-col items-center justify-center min-h-[140px]">
+                                    <div class="absolute top-2 left-2 flex items-center space-x-1">
+                                        <span class="bg-green-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">4</span>
+                                        <span class="text-[10px] font-bold text-slate-500">Panggung (Stage)</span>
+                                    </div>
+                                    <div class="text-emerald-600 text-3xl font-display font-bold mt-3"><i class="fa-solid fa-cat"></i></div>
+                                    <span class="text-[10px] text-slate-400 font-mono mt-1">Sprite1 (x: 0, y: 0)</span>
+                                </div>
+
+                                <!-- Sprite & Backdrop List -->
+                                <div id="gui-part-spritelist" onclick="inspectInterfacePart('spritelist')" class="bg-slate-800 p-2.5 rounded-xl border-2 border-transparent hover:border-pink-400 cursor-pointer transition relative group">
+                                    <div class="flex items-center justify-between mb-1.5">
+                                        <span class="text-[11px] font-bold text-pink-300"><i class="fa-solid fa-images mr-1"></i>Daftar Sprite & Latar</span>
+                                        <span class="bg-pink-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">5</span>
+                                    </div>
+                                    <div class="flex items-center space-x-2">
+                                        <div class="bg-slate-700 p-1.5 rounded-lg text-center flex-1 border border-pink-400/40">
+                                            <i class="fa-solid fa-cat text-scratch-orange text-base"></i>
+                                            <div class="text-[9px] font-bold">Kucing</div>
+                                        </div>
+                                        <div class="bg-slate-700 p-1.5 rounded-lg text-center flex-1 opacity-60">
+                                            <i class="fa-solid fa-plus text-slate-300 text-base"></i>
+                                            <div class="text-[9px]">Tambah</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Selected Component Information Card -->
+                    <div id="gui-detail-card" class="bg-slate-50 p-5 rounded-2xl border-2 border-scratch-blue flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div class="flex items-start space-x-4">
+                            <div id="gui-detail-icon" class="w-14 h-14 bg-scratch-blue text-white rounded-2xl flex items-center justify-center text-2xl font-bold flex-shrink-0 shadow-md">
+                                <i class="fa-solid fa-desktop"></i>
+                            </div>
+                            <div>
+                                <span id="gui-detail-badge" class="bg-blue-100 text-blue-800 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">Komponen 1 dari 5</span>
+                                <h3 id="gui-detail-title" class="font-display text-xl font-bold text-slate-800 mt-0.5">Toolbar & Menu Utama</h3>
+                                <p id="gui-detail-desc" class="text-slate-600 text-xs sm:text-sm mt-1 leading-relaxed">
+                                    Area bagian atas layar Scratch yang berisi opsi pengaturan bahasa, menyimpan file proyek, memuat file dari komputer, serta mengakses tutorial pembelajaran bawaan.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="bg-white p-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 max-w-xs self-stretch sm:self-auto">
+                            <span class="text-[10px] font-bold text-slate-400 uppercase block mb-1">Fungsi Utama:</span>
+                            <span id="gui-detail-function">Mengatur sistem file, opsi bahasa, serta kontrol umum aplikasi.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-MODUL 1B: MATCH KATEGORI BLOK -->
+                <div id="mod1-sub-categories" class="hidden">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Left Column: Scratch Block Categories -->
+                        <div class="space-y-3" id="mod1-categories">
+                            <!-- Rendered dynamically -->
+                        </div>
+
+                        <!-- Right Column: Matching Functions -->
+                        <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex flex-col justify-between" id="mod1-drop-target">
+                            <div>
+                                <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Deskripsi Fungsi Blok</div>
+                                <h3 id="mod1-selected-title" class="font-display text-xl font-bold text-slate-800 mb-2">Pilih Salah Satu Blok</h3>
+                                <p id="mod1-selected-desc" class="text-slate-600 text-sm leading-relaxed mb-4">Klik tombol kategori di samping kiri untuk mengeksplorasi fungsi dan contoh penggunaannya dalam koding Scratch.</p>
+                                
+                                <div id="mod1-example-box" class="hidden bg-white p-4 rounded-xl border border-slate-200">
+                                    <span class="text-[10px] font-bold uppercase text-slate-400 block mb-1">Contoh Penggunaan:</span>
+                                    <div id="mod1-example-code" class="font-mono text-sm font-bold text-slate-700"></div>
+                                </div>
+                            </div>
+
+                            <div class="mt-6 pt-4 border-t border-slate-200 flex justify-between items-center">
+                                <span class="text-xs font-semibold text-slate-500">Kemajuan Eksplorasi: <span id="mod1-progress-text">0 / 5</span></span>
+                                <button onclick="resetMod1()" class="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl transition">
+                                    Reset Eksplorasi
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- MODUL 2: PUZZLE LOGIKA SCRIPT (LKPD Kelompok 1-5) -->
+        <!-- ========================================== -->
+        <section id="module-2" class="module-section hidden space-y-6">
+            
+            <!-- SUPLEMENTARY THEORY BANNER (MODUL 2 MATERI SISIPAN) -->
+            <div class="bg-gradient-to-r from-purple-900 via-slate-900 to-indigo-950 rounded-3xl p-6 text-white shadow-xl border border-purple-800/40">
+                <div class="flex items-center justify-between cursor-pointer mb-3" onclick="toggleTheoryAccordion('m2-theory')">
+                    <div class="flex items-center space-x-3">
+                        <span class="w-10 h-10 rounded-2xl bg-scratch-purple flex items-center justify-center font-display font-bold text-lg shadow-md">
+                            <i class="fa-solid fa-book-open"></i>
+                        </span>
+                        <div>
+                            <span class="text-[10px] uppercase tracking-widest font-extrabold text-purple-300">Suplemen Materi Modul 2</span>
+                            <h3 class="font-display text-xl font-bold text-white">Algoritma & Konsep Sekuens (Sequence)</h3>
+                        </div>
+                    </div>
+                    <button class="px-3 py-1.5 bg-purple-800 hover:bg-purple-700 rounded-xl text-xs font-bold transition flex items-center space-x-1.5">
+                        <span id="m2-theory-btn-text">Tampilkan Materi</span>
+                        <i id="m2-theory-btn-icon" class="fa-solid fa-chevron-down"></i>
+                    </button>
+                </div>
+
+                <div id="m2-theory-content" class="hidden pt-4 border-t border-purple-800/60 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                        <!-- Konsep Sekuens -->
+                        <div class="bg-slate-800/80 p-4 rounded-2xl border border-purple-500/30">
+                            <h4 class="font-display font-bold text-purple-300 text-sm mb-1 flex items-center">
+                                <i class="fa-solid fa-arrow-down-short-wide text-scratch-yellow mr-2"></i>1. Konsep Sekuens (Sequence)
+                            </h4>
+                            <p class="text-slate-300 leading-relaxed">
+                                Sekuens adalah urutan eksekusi perintah langkah demi langkah dari <strong>atas ke bawah</strong>. Komputer selalu menjalankan instruksi sesuai dengan urutan baris blok yang disusun. Jika urutan blok tertukar, hasil aksi program akan salah secara logika.
+                            </p>
+                        </div>
+
+                        <!-- Pemicu Program -->
+                        <div class="bg-slate-800/80 p-4 rounded-2xl border border-purple-500/30">
+                            <h4 class="font-display font-bold text-amber-300 text-sm mb-1 flex items-center">
+                                <i class="fa-solid fa-flag text-amber-400 mr-2"></i>2. Pemicu Program (Events)
+                            </h4>
+                            <p class="text-slate-300 leading-relaxed">
+                                Blok <code class="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono font-bold">ketika bendera hijau diklik</code> berfungsi sebagai pemicu utama (trigger). Tanpa adanya blok pemicu di posisi paling atas, rangkaian blok di bawahnya tidak akan dapat dijalankan oleh sistem.
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Comparison Table for Sekuens -->
+                    <div class="bg-slate-950 p-4 rounded-2xl border border-purple-500/20">
+                        <h4 class="font-display font-bold text-slate-200 text-xs uppercase tracking-wider mb-3 flex items-center">
+                            <i class="fa-solid fa-scale-balanced text-scratch-orange mr-2"></i>Contoh Analisis Sekuens Percakapan & Gerakan
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                            <!-- Logis (Benar) -->
+                            <div class="bg-emerald-950/60 border border-emerald-500/40 p-3 rounded-xl">
+                                <div class="font-bold text-emerald-400 flex items-center justify-between border-b border-emerald-800 pb-1.5 mb-2">
+                                    <span>Urutan Logis (Benar)</span>
+                                    <i class="fa-solid fa-circle-check"></i>
+                                </div>
+                                <ol class="list-decimal list-inside space-y-1 text-slate-200 font-mono text-[11px]">
+                                    <li>ketika bendera hijau diklik</li>
+                                    <li>katakan "Hai!" selama 2 detik</li>
+                                    <li>pindah 5 langkah</li>
+                                    <li>tunggu 2 detik</li>
+                                    <li>katakan "Aku siap!"</li>
+                                </ol>
+                                <p class="text-[10px] text-emerald-300 font-sans italic mt-2.5 pt-1.5 border-t border-emerald-800/50">
+                                    ✔ Kucing menyapa dulu, lalu berjalan.
+                                </p>
+                            </div>
+
+                            <!-- Tidak Logis (Keliru) -->
+                            <div class="bg-rose-950/60 border border-rose-500/40 p-3 rounded-xl">
+                                <div class="font-bold text-rose-400 flex items-center justify-between border-b border-rose-800 pb-1.5 mb-2">
+                                    <span>Urutan Keliru (Tidak Logis)</span>
+                                    <i class="fa-solid fa-circle-xmark"></i>
+                                </div>
+                                <ol class="list-decimal list-inside space-y-1 text-slate-200 font-mono text-[11px]">
+                                    <li>ketika bendera hijau diklik</li>
+                                    <li>pindah 5 langkah</li>
+                                    <li>katakan "Hai!" selama 2 detik</li>
+                                    <li>tunggu 2 detik</li>
+                                    <li>katakan "Aku siap!"</li>
+                                </ol>
+                                <p class="text-[10px] text-rose-300 font-sans italic mt-2.5 pt-1.5 border-t border-rose-800/50">
+                                    ✖ Kucing berjalan dulu baru menyapa.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MAIN WORKSPACE MODUL 2 -->
+            <div class="bg-white rounded-3xl p-6 shadow-xl border border-slate-200">
+                <!-- Header with Group Switcher -->
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span class="bg-purple-100 text-purple-800 font-bold text-xs uppercase px-3 py-1 rounded-full">Modul 2 • Susun Logika Algoritma</span>
+                            <span id="mod2-group-badge" class="bg-scratch-purple text-white font-bold text-xs px-2.5 py-0.5 rounded-full">Kelompok 1</span>
+                        </div>
+                        <h2 id="mod2-title-text" class="font-display text-2xl sm:text-3xl font-bold text-slate-800 mt-1">Puzzle Urutan Koding Kelompok</h2>
+                        <p id="mod2-scenario-text" class="text-slate-600 text-sm mt-0.5">Pilih kelompok untuk menampilkan skenario tugas koding!</p>
+                    </div>
+
+                    <div class="flex items-center space-x-3 self-stretch sm:self-auto justify-between md:justify-end">
+                        <!-- Group Selector Tabs -->
+                        <div class="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 space-x-1">
+                            <button onclick="selectActiveGroup(1); renderMod2CurrentGroup();" class="mod2-group-btn px-2.5 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="1">K1</button>
+                            <button onclick="selectActiveGroup(2); renderMod2CurrentGroup();" class="mod2-group-btn px-2.5 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="2">K2</button>
+                            <button onclick="selectActiveGroup(3); renderMod2CurrentGroup();" class="mod2-group-btn px-2.5 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="3">K3</button>
+                            <button onclick="selectActiveGroup(4); renderMod2CurrentGroup();" class="mod2-group-btn px-2.5 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="4">K4</button>
+                            <button onclick="selectActiveGroup(5); renderMod2CurrentGroup();" class="mod2-group-btn px-2.5 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="5">K5</button>
+                        </div>
+
+                        <button onclick="checkMod2Puzzle()" class="touch-btn px-5 py-2.5 bg-scratch-purple hover:bg-purple-700 text-white font-display font-bold rounded-2xl shadow-md transition flex items-center space-x-2">
+                            <i class="fa-solid fa-play"></i>
+                            <span>Uji Algoritma</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Available Scrambled Blocks Area -->
+                    <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200">
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="font-display text-base font-bold text-slate-700 flex items-center space-x-2">
+                                <i class="fa-solid fa-cubes text-scratch-purple"></i>
+                                <span>Pilihan Blok Teracak (Klik untuk Pindahkan)</span>
+                            </h3>
+                            <button onclick="resetMod2GroupPuzzle()" class="text-xs text-slate-500 hover:text-slate-800 font-bold underline">Reset</button>
+                        </div>
+                        <div id="mod2-available-blocks" class="space-y-2.5">
+                            <!-- Blocks rendered dynamically -->
+                        </div>
+                    </div>
+
+                    <!-- Workspace Target Area -->
+                    <div class="bg-slate-900 p-5 rounded-2xl border-2 border-dashed border-purple-300 flex flex-col justify-between">
+                        <div>
+                            <h3 class="font-display text-base font-bold text-purple-200 mb-3 flex items-center space-x-2">
+                                <i class="fa-solid fa-layer-group text-scratch-yellow"></i>
+                                <span>Workspace / Panggung Algoritma</span>
+                            </h3>
+                            <div id="mod2-workspace-blocks" class="space-y-2 min-h-[220px]">
+                                <!-- User placed blocks -->
+                            </div>
+                        </div>
+
+                        <div id="mod2-result-msg" class="hidden mt-4 p-3.5 rounded-xl text-xs font-bold text-center"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- MODUL 3: DEBUGGING LAB (LKPD Kelompok 1-5) -->
+        <!-- ========================================== -->
+        <section id="module-3" class="module-section hidden space-y-6">
+            
+            <!-- SUPLEMENTARY THEORY BANNER (MODUL 3 MATERI SISIPAN) -->
+            <div class="bg-gradient-to-r from-rose-900 via-slate-900 to-red-950 rounded-3xl p-6 text-white shadow-xl border border-rose-800/40">
+                <div class="flex items-center justify-between cursor-pointer mb-3" onclick="toggleTheoryAccordion('m3-theory')">
+                    <div class="flex items-center space-x-3">
+                        <span class="w-10 h-10 rounded-2xl bg-rose-600 flex items-center justify-center font-display font-bold text-lg shadow-md">
+                            <i class="fa-solid fa-bug"></i>
+                        </span>
+                        <div>
+                            <span class="text-[10px] uppercase tracking-widest font-extrabold text-rose-300">Suplemen Materi Modul 3</span>
+                            <h3 class="font-display text-xl font-bold text-white">Konsep Debugging & Perbaikan Logika Error</h3>
+                        </div>
+                    </div>
+                    <button class="px-3 py-1.5 bg-rose-800 hover:bg-rose-700 rounded-xl text-xs font-bold transition flex items-center space-x-1.5">
+                        <span id="m3-theory-btn-text">Tampilkan Materi</span>
+                        <i id="m3-theory-btn-icon" class="fa-solid fa-chevron-down"></i>
+                    </button>
+                </div>
+
+                <div id="m3-theory-content" class="hidden pt-4 border-t border-rose-800/60 space-y-3 text-xs">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div class="bg-slate-800/80 p-3.5 rounded-2xl border border-rose-500/30">
+                            <h4 class="font-bold text-rose-300 mb-1 flex items-center"><i class="fa-solid fa-magnifying-glass mr-1.5"></i>1. Apa itu Debugging?</h4>
+                            <p class="text-slate-300 text-[11px] leading-relaxed">Proses sistematis mendeteksi, mengidentifikasi, dan memperbaiki kesalahan (bug) pada susunan logika blok agar program berjalan sesuai harapan.</p>
+                        </div>
+                        <div class="bg-slate-800/80 p-3.5 rounded-2xl border border-rose-500/30">
+                            <h4 class="font-bold text-amber-300 mb-1 flex items-center"><i class="fa-solid fa-eye mr-1.5"></i>2. Amati Gejala Bug</h4>
+                            <p class="text-slate-300 text-[11px] leading-relaxed">Jalankan program dan perhatikan titik di mana karakter bertindak tidak wajar (misal: membal balik, animasi terlalu cepat, atau diam saja).</p>
+                        </div>
+                        <div class="bg-slate-800/80 p-3.5 rounded-2xl border border-rose-500/30">
+                            <h4 class="font-bold text-emerald-300 mb-1 flex items-center"><i class="fa-solid fa-wrench mr-1.5"></i>3. Solusi Terstruktur</h4>
+                            <p class="text-slate-300 text-[11px] leading-relaxed">Tambahkan pemicu (Events), kontrol jeda waktu (wait), atau kontrol batas layar (if on edge bounce) secara tepat.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- MAIN WORKSPACE MODUL 3 -->
+            <div class="bg-white rounded-3xl p-6 shadow-xl border border-slate-200">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span class="bg-rose-100 text-rose-800 font-bold text-xs uppercase px-3 py-1 rounded-full">Modul 3 • Deteksi Error Koding</span>
+                            <span id="mod3-group-badge" class="bg-rose-600 text-white font-bold text-xs px-2.5 py-0.5 rounded-full">Kelompok 1</span>
+                        </div>
+                        <h2 class="font-display text-2xl sm:text-3xl font-bold text-slate-800 mt-1">Debugging Lab Scratch</h2>
+                        <p id="mod3-problem-text" class="text-slate-600 text-sm mt-0.5">Analisis program ber-bug dan pilih solusi perbaikan terbaik!</p>
+                    </div>
+
+                    <!-- Group Switcher Tabs -->
+                    <div class="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 space-x-1 self-stretch sm:self-auto justify-between md:justify-end">
+                        <button onclick="selectActiveGroup(1); renderMod3CurrentGroup();" class="mod3-group-btn px-3 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="1">Kelompok 1</button>
+                        <button onclick="selectActiveGroup(2); renderMod3CurrentGroup();" class="mod3-group-btn px-3 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="2">Kelompok 2</button>
+                        <button onclick="selectActiveGroup(3); renderMod3CurrentGroup();" class="mod3-group-btn px-3 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="3">Kelompok 3</button>
+                        <button onclick="selectActiveGroup(4); renderMod3CurrentGroup();" class="mod3-group-btn px-3 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="4">Kelompok 4</button>
+                        <button onclick="selectActiveGroup(5); renderMod3CurrentGroup();" class="mod3-group-btn px-3 py-1.5 rounded-xl font-display font-bold text-xs transition" data-g="5">Kelompok 5</button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Script with Bug -->
+                    <div class="bg-slate-800 text-white p-5 rounded-2xl border border-slate-700 flex flex-col justify-between">
+                        <div>
+                            <h3 class="font-display text-base font-bold text-rose-400 mb-3 flex items-center space-x-2">
+                                <i class="fa-solid fa-bug text-xl"></i>
+                                <span>Program Ber-Bug:</span>
+                            </h3>
+
+                            <div class="space-y-2 mb-4" id="mod3-buggy-code-container">
+                                <!-- Dynamic code snippet preview -->
+                            </div>
+                        </div>
+
+                        <p class="text-xs text-slate-300 italic"><i class="fa-solid fa-circle-info mr-1"></i>Analisis urutan blok di atas untuk menemukan kejanggalan logika program.</p>
+                    </div>
+
+                    <!-- Debug Fix Choices -->
+                    <div class="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex flex-col justify-between">
+                        <div>
+                            <h3 class="font-display text-base font-bold text-slate-800 mb-3">Pilihan Solusi Perbaikan (Pilih 1)</h3>
+                            <div class="space-y-3" id="mod3-options">
+                                <!-- Render Options JS -->
+                            </div>
+                        </div>
+
+                        <div id="mod3-status" class="mt-4 p-4 rounded-2xl bg-white border border-slate-200 text-xs font-bold text-slate-600 text-center">
+                            Pilih salah satu solusi perbaikan di atas.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- MODUL 4: ARENA KUIS INTERAKTIF KELOMPOK (20 SOAL BANK) -->
+        <!-- ========================================== -->
+        <section id="module-4" class="module-section hidden">
+            <div class="bg-white rounded-3xl p-6 shadow-xl border border-slate-200">
+                
+                <!-- Quiz Header Info -->
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-slate-100">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <span class="bg-yellow-100 text-yellow-800 font-bold text-xs uppercase px-3 py-1 rounded-full">Modul 4 • Gamifikasi Kuis Kelompok</span>
+                            <span class="bg-amber-500 text-white font-bold text-xs px-2.5 py-0.5 rounded-full">Bank Soal Resmi (20 Soal)</span>
+                        </div>
+                        <h2 class="font-display text-2xl sm:text-3xl font-bold text-slate-800 mt-1">Arena Kuis Interaktif Kelompok</h2>
+                        <p class="text-slate-600 text-sm mt-0.5">20 Soal Pilihan Ganda • Giliran Diskusi & Sentuh Jawaban Per Kelompok!</p>
+                    </div>
+
+                    <!-- Timer, Active Group & Quiz Score Box -->
+                    <div class="flex items-center space-x-3 flex-wrap gap-y-2">
+                        <!-- Active Group Badge -->
+                        <div class="bg-purple-100 border border-purple-300 text-scratch-purple px-3 py-2 rounded-2xl flex items-center space-x-2">
+                            <i class="fa-solid fa-users text-lg"></i>
+                            <div>
+                                <div class="text-[9px] uppercase font-bold text-purple-600">Giliran Menjawab</div>
+                                <div id="quiz-active-group-tag" class="font-display font-bold text-sm text-purple-900">Kelompok 1</div>
+                            </div>
+                        </div>
+
+                        <!-- Timer Circle -->
+                        <div class="bg-slate-900 text-white px-4 py-2 rounded-2xl flex items-center space-x-3 border border-slate-700">
+                            <i class="fa-solid fa-stopwatch text-scratch-yellow text-xl"></i>
+                            <div>
+                                <div class="text-[10px] uppercase font-bold text-slate-400">Sisa Waktu</div>
+                                <div id="quiz-timer" class="font-display font-bold text-xl text-yellow-400">30s</div>
+                            </div>
+                        </div>
+                        <!-- Score Display -->
+                        <div class="bg-scratch-orange text-white px-4 py-2 rounded-2xl flex items-center space-x-3 shadow-md">
+                            <i class="fa-solid fa-star text-yellow-200 text-xl"></i>
+                            <div>
+                                <div class="text-[10px] uppercase font-bold text-amber-100">Total Skor Sesi</div>
+                                <div id="quiz-score-num" class="font-display font-bold text-xl">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quiz Progress Bar -->
+                <div class="mb-6 bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200">
+                    <div id="quiz-progress" class="bg-scratch-orange h-full w-0 transition-all duration-300"></div>
+                </div>
+
+                <!-- Quiz Main Container -->
+                <div id="quiz-body">
+                    <!-- Dynamic Question Box & Options rendered in JS -->
+                </div>
+
+                <!-- Quiz Finished Result Modal Container -->
+                <div id="quiz-result" class="hidden text-center py-8">
+                    <div class="max-w-md mx-auto bg-slate-50 p-8 rounded-3xl border border-slate-200 shadow-xl">
+                        <div class="w-20 h-20 bg-yellow-100 text-scratch-orange rounded-full flex items-center justify-center text-4xl mx-auto mb-4 font-display font-bold shadow-inner">
+                            <i class="fa-solid fa-trophy"></i>
+                        </div>
+                        <h3 class="font-display text-3xl font-bold text-slate-800 mb-2">Kuis Kelompok Selesai!</h3>
+                        <p class="text-slate-600 text-sm mb-6">Luar biasa! Seluruh 20 soal kuis dari Bank Soal telah berhasil diselesaikan oleh kelompok di papan interaktif.</p>
+                        
+                        <div class="bg-white p-4 rounded-2xl border border-slate-200 mb-6 shadow-sm">
+                            <div class="text-xs font-bold text-slate-400 uppercase">Total Skor Akhir Sesi</div>
+                            <div id="final-score-text" class="font-display text-5xl font-extrabold text-scratch-orange my-1">0</div>
+                            <div id="final-accuracy-badge" class="inline-block px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full mt-2">Pencapaian Hebat!</div>
+                        </div>
+
+                        <div class="flex space-x-3">
+                            <button onclick="restartQuiz()" class="touch-btn flex-1 py-3 bg-scratch-orange hover:bg-amber-600 text-white font-display font-bold text-base rounded-2xl shadow-md transition">
+                                <i class="fa-solid fa-rotate-right mr-2"></i>Ulangi Kuis Sesi Baru
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- MODUL 5: ASESMEN SUMATIF INDIVIDU (10 SOAL DARI BANK SOAL) -->
+        <!-- ========================================== -->
+        <section id="module-5" class="module-section hidden">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                
+                <!-- Left/Main Panel: Quiz Form / Test Box -->
+                <div class="lg:col-span-2 bg-white rounded-3xl p-6 shadow-xl border border-slate-200">
+                    <div class="flex items-center justify-between mb-6 pb-4 border-b border-slate-100 flex-wrap gap-2">
+                        <div>
+                            <div class="flex items-center space-x-2">
+                                <span class="bg-blue-100 text-blue-800 font-bold text-xs uppercase px-3 py-1 rounded-full">Modul 5 • Penilaian Mandiri</span>
+                                <span class="bg-emerald-100 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full text-[11px] font-bold flex items-center space-x-1">
+                                    <i class="fa-solid fa-wifi text-emerald-600 animate-pulse"></i>
+                                    <span>Sinkronisasi Otomatis PID</span>
+                                </span>
+                            </div>
+                            <h2 class="font-display text-2xl sm:text-3xl font-bold text-slate-800 mt-1">Asesmen Sumatif Individu</h2>
+                            <p class="text-slate-600 text-sm mt-0.5">10 Soal Acak dari Bank Soal • Kerjakan di Gawai/HP atau PID (Nilai terisi otomatis)</p>
+                        </div>
+                        <div class="bg-slate-100 p-3 rounded-2xl text-slate-600 text-center border border-slate-200">
+                            <i class="fa-solid fa-id-card text-2xl text-scratch-blue mb-1"></i>
+                            <div class="text-[10px] font-bold uppercase tracking-wider">Hasil Rapor</div>
+                        </div>
+                    </div>
+
+                    <!-- STEP 1: Student Identity Input -->
+                    <div id="sum-step-identity" class="space-y-5 py-4">
+                        <div class="bg-blue-50 border border-blue-200 rounded-2xl p-4 text-blue-900 text-sm flex items-start space-x-3">
+                            <i class="fa-solid fa-circle-info text-scratch-blue text-xl mt-0.5"></i>
+                            <div>
+                                <strong>Petunjuk untuk Siswa:</strong> Masukkan Nama Lengkap dan Nomor Absen sebelum memulai tes mandiri. Soal diambil secara terstandar dari 20 Bank Soal Pemrograman Visual Scratch. Nilaimu akan otomatis tersimpan di tabel rekapitulasi kelas.
+                            </div>
+                        </div>
+
+                        <div class="space-y-4 max-w-md mx-auto">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-2">Nama Lengkap Siswa</label>
+                                <input type="text" id="sum-student-name" placeholder="Contoh: Ahmad Rizky" class="w-full px-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-scratch-blue focus:outline-none font-display text-base text-slate-800">
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-2">Nomor Absen</label>
+                                <input type="number" id="sum-student-no" placeholder="Contoh: 01" class="w-full px-4 py-3.5 rounded-2xl border-2 border-slate-200 focus:border-scratch-blue focus:outline-none font-display text-base text-slate-800">
+                            </div>
+
+                            <button onclick="startSummativeQuiz()" class="touch-btn w-full py-4 bg-scratch-blue hover:bg-blue-600 text-white font-display font-bold text-lg rounded-2xl shadow-lg transition flex items-center justify-center space-x-2">
+                                <i class="fa-solid fa-play"></i>
+                                <span>Mulai Tes Sumatif Individu (10 Soal)</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- STEP 2: Summative Quiz Body -->
+                    <div id="sum-step-quiz" class="hidden">
+                        <div class="flex justify-between items-center mb-4">
+                            <span id="sum-student-badge" class="font-display font-bold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200 text-sm">
+                                Siswa: -
+                            </span>
+                            <span id="sum-progress-text" class="font-display font-bold text-scratch-blue text-sm">
+                                Soal 1 dari 10
+                            </span>
+                        </div>
+
+                        <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 mb-6">
+                            <h3 id="sum-question-text" class="font-display text-xl sm:text-2xl font-bold text-slate-800 leading-snug">
+                                Teks Soal Sumatif...
+                            </h3>
+                        </div>
+
+                        <div id="sum-options-container" class="grid grid-cols-1 gap-3">
+                            <!-- Render options via JS -->
+                        </div>
+                    </div>
+
+                    <!-- STEP 3: Summative Quiz Result -->
+                    <div id="sum-step-result" class="hidden text-center py-6">
+                        <div class="w-20 h-20 bg-blue-100 text-scratch-blue rounded-full flex items-center justify-center text-4xl mx-auto mb-4 font-display font-bold">
+                            <i class="fa-solid fa-award"></i>
+                        </div>
+                        <h3 class="font-display text-2xl font-bold text-slate-800 mb-1">Tes Sumatif Selesai!</h3>
+                        <p id="sum-result-student-name" class="text-slate-600 text-sm font-medium mb-4">Nama Siswa (No. Absen)</p>
+
+                        <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 max-w-sm mx-auto mb-6">
+                            <div class="text-xs font-bold text-slate-400 uppercase">Nilai Akhir Individu</div>
+                            <div id="sum-final-score" class="font-display text-6xl font-extrabold text-scratch-blue my-2">0</div>
+                            <div id="sum-kkm-badge" class="inline-block px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full">
+                                Tuntas (Memenuhi KKM ≥75)
+                            </div>
+                        </div>
+
+                        <button onclick="resetSummativeForm()" class="touch-btn px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-display font-bold text-base rounded-2xl transition">
+                            <i class="fa-solid fa-user-plus mr-2"></i>Lanjut Siswa Berikutnya
+                        </button>
+                    </div>
+
+                </div>
+
+                <!-- Right Panel: Class Gradebook / Rekapitulasi Nilai -->
+                <div class="bg-white rounded-3xl p-6 shadow-xl border border-slate-200 flex flex-col justify-between">
+                    <div>
+                        <div class="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                            <h3 class="font-display text-lg font-bold text-slate-800 flex items-center space-x-2">
+                                <i class="fa-solid fa-list-check text-scratch-blue"></i>
+                                <span>Rekap Nilai Kelas PID</span>
+                            </h3>
+                            <button onclick="clearClassGrades()" class="text-xs text-red-500 hover:text-red-700 font-bold">
+                                Reset Rekap
+                            </button>
+                        </div>
+
+                        <div class="overflow-y-auto max-h-[420px] pr-1">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr class="border-b border-slate-200 text-slate-400 font-bold uppercase">
+                                        <th class="py-2">No</th>
+                                        <th class="py-2">Nama</th>
+                                        <th class="py-2 text-center">Nilai</th>
+                                        <th class="py-2 text-right">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sum-grades-tbody">
+                                    <tr id="empty-grades-row">
+                                        <td colspan="4" class="py-8 text-center text-slate-400 italic">
+                                            Belum ada siswa yang menyelesaikan tes sumatif.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="pt-4 border-t border-slate-100">
+                        <button onclick="copyClassGrades()" class="touch-btn w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-display font-bold text-xs rounded-xl transition flex items-center justify-center space-x-2">
+                            <i class="fa-solid fa-copy"></i>
+                            <span>Salin Ringkasan Nilai Kelas</span>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="bg-slate-900 text-slate-400 text-xs py-4 px-4 text-center border-t border-slate-800">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-2">
+            <span>&copy; 2026 Modul Digital KKA Fase D • Touchscreen Optimized for PID</span>
+            <span>Media Pembelajaran Pemrograman Visual Scratch / Blockly</span>
+        </div>
+    </footer>
+
+    <script>
+        /* =======================================================
+           20 BANK SOAL RESMI KKA (SCRATCH) DARI DOKUMEN MODUL
+        ======================================================= */
+        const masterBankSoal = [
+            {
+                q: "1. Bagian Scratch yang menampilkan hasil jalannya program (karakter bergerak, berbicara, dll.) disebut...",
+                options: ["Palette Blok", "Script Area", "Panggung (Stage)", "Daftar Sprite"],
+                answer: 2
+            },
+            {
+                q: "2. Kumpulan kategori blok perintah (Gerakan, Suara, Peristiwa, dst.) pada Scratch berada di bagian...",
+                options: ["Panggung", "Kategori/Palette Blok", "Daftar Sprite", "Script Area"],
+                answer: 1
+            },
+            {
+                q: "3. Tempat menyusun dan merangkai blok-blok perintah menjadi satu program disebut...",
+                options: ["Panggung", "Kategori Blok", "Area Blok/Script Area", "Daftar Sprite"],
+                answer: 2
+            },
+            {
+                q: "4. Blok yang biasa digunakan sebagai \"tombol mulai\" agar program langsung berjalan adalah...",
+                options: ["tunggu 2 detik", "ketika bendera hijau diklik", "pindah 10 langkah", "katakan \"Halo!\""],
+                answer: 1
+            },
+            {
+                q: "5. Agar karakter (sprite) berbicara selama beberapa detik, blok yang digunakan adalah...",
+                options: ["pindah 10 langkah", "katakan \"...\" selama ... detik", "putar 15 derajat", "tunggu 1 detik"],
+                answer: 1
+            },
+            {
+                q: "6. Urutan blok yang benar agar kucing bergerak maju lalu berbicara adalah...",
+                options: [
+                    "katakan -> pindah -> bendera hijau",
+                    "ketika bendera hijau diklik -> pindah -> katakan",
+                    "pindah -> bendera hijau -> katakan",
+                    "katakan -> bendera hijau -> pindah"
+                ],
+                answer: 1
+            },
+            {
+                q: "7. Proses menemukan dan memperbaiki kesalahan pada program disebut...",
+                options: ["Algoritma", "Dekomposisi", "Debugging", "Abstraksi"],
+                answer: 2
+            },
+            {
+                q: "8. Program adalah bentuk implementasi dari...",
+                options: ["Sprite", "Algoritma", "Stage", "Palette"],
+                answer: 1
+            },
+            {
+                q: "9. Jika program tidak berjalan sesuai harapan, langkah pertama yang sebaiknya dilakukan adalah...",
+                options: [
+                    "Menghapus semua blok",
+                    "Menjalankan ulang dan mengamati bagian mana yang tidak sesuai",
+                    "Mengganti karakter",
+                    "Menutup aplikasi"
+                ],
+                answer: 1
+            },
+            {
+                q: "10. Pemrograman visual berbasis blok memudahkan pemula karena...",
+                options: [
+                    "Harus mengetik kode rumit",
+                    "Blok tinggal disusun (drag-and-drop) tanpa menulis kode teks",
+                    "Tidak perlu logika sama sekali",
+                    "Hanya bisa dijalankan di HP"
+                ],
+                answer: 1
+            },
+            {
+                q: "11. Objek atau karakter interaktif pada Scratch yang dapat diberi perintah dan digerakkan disebut...",
+                options: ["Stage", "Sprite", "Costume", "Backdrop"],
+                answer: 1
+            },
+            {
+                q: "12. Latar belakang tampilan pada panggung (Stage) di Scratch disebut...",
+                options: ["Sprite", "Canvas", "Backdrop", "Frame"],
+                answer: 2
+            },
+            {
+                q: "13. Blok perulangan yang digunakan agar suatu instruksi dijalankan terus-menerus tanpa henti adalah...",
+                options: ["ulangi 10 kali", "selamanya (forever)", "jika ... maka", "tunggu 1 detik"],
+                answer: 1
+            },
+            {
+                q: "14. Kategori blok yang berfungsi untuk mengubah tampilan karakter, seperti mengganti kostum atau ukuran, adalah...",
+                options: ["Gerakan (Motion)", "Tampilan (Looks)", "Suara (Sound)", "Sensor (Sensing)"],
+                answer: 1
+            },
+            {
+                q: "15. Jika karakter bergerak mendekati batas panggung dan kita ingin karakter tersebut berbalik arah, blok yang digunakan adalah...",
+                options: ["jika di pinggir, pantulkan (if on edge, bounce)", "atur mode rotasi", "mengarah ke posisi acak", "pergi ke x: 0 y: 0"],
+                answer: 0
+            },
+            {
+                q: "16. Kategori blok perintah \"tunggu 1 detik\" atau \"ulangi 10 kali\" termasuk dalam kelompok...",
+                options: ["Peristiwa (Events)", "Kontrol (Control)", "Gerakan (Motion)", "Operator (Operators)"],
+                answer: 1
+            },
+            {
+                q: "17. Blok perintah \"ketika tombol [spasi] ditekan\" tergolong dalam kategori...",
+                options: ["Peristiwa (Events)", "Sensor (Sensing)", "Tampilan (Looks)", "Variabel (Variables)"],
+                answer: 0
+            },
+            {
+                q: "18. Blok yang digunakan untuk membuat karakter memutar arah jalannya ke kanan atau ke kiri sebesar derajat tertentu adalah...",
+                options: ["pindah 10 langkah", "putar ... derajat", "menuju ke posisi acak", "ubah x sebesar 10"],
+                answer: 1
+            },
+            {
+                q: "19. Kategori blok yang digunakan untuk mendeteksi apakah karakter menyentuh kursor tetikus (mouse) atau warna tertentu adalah...",
+                options: ["Operator (Operators)", "Sensor (Sensing)", "Kontrol (Control)", "Variabel (Variables)"],
+                answer: 1
+            },
+            {
+                q: "20. Cara paling efisien untuk membuat karakter melangkah 10 langkah sebanyak 5 kali adalah...",
+                options: [
+                    "Menyusun 5 blok \"pindah 10 langkah\" secara berurutan",
+                    "Memasukkan 1 blok \"pindah 10 langkah\" ke dalam blok \"ulangi 5 kali\"",
+                    "Menggunakan 5 blok \"ketika bendera hijau diklik\"",
+                    "Memasukkan blok \"tunggu 5 detik\" lalu \"pindah 50 langkah\""
+                ],
+                answer: 1
+            }
+        ];
+
+        /* Global State & Audio Synth */
+        let currentModule = 1;
+        let isMuted = false;
+        let activeGroup = 1;
+        let groupScores = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+
+        function toggleTPModal() {
+            playSound('click');
+            const modal = document.getElementById('tp-modal');
+            modal.classList.toggle('hidden');
+        }
+
+        function toggleTheoryAccordion(sectionId) {
+            playSound('click');
+            const content = document.getElementById(`${sectionId}-content`);
+            const btnText = document.getElementById(`${sectionId}-btn-text`);
+            const btnIcon = document.getElementById(`${sectionId}-btn-icon`);
+
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                btnText.innerText = "Sembunyikan Materi";
+                btnIcon.className = "fa-solid fa-chevron-up";
+            } else {
+                content.classList.add('hidden');
+                btnText.innerText = "Tampilkan Materi";
+                btnIcon.className = "fa-solid fa-chevron-down";
+            }
+        }
+
+        // Audio Synthesizer
+        function playSound(type) {
+            if (isMuted) return;
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                if (type === 'click') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(400, ctx.currentTime);
+                    gain.gain.setValueAtTime(0.1, ctx.currentTime);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.08);
+                } else if (type === 'success') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.25);
+                } else if (type === 'error') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(110, ctx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.25);
+                }
+            } catch (e) {}
+        }
+
+        function toggleSound() {
+            isMuted = !isMuted;
+            const btn = document.getElementById('sound-btn');
+            if (isMuted) {
+                btn.innerHTML = '<i class="fa-solid fa-volume-xmark text-lg text-slate-400"></i>';
+                showToast("Suara Dimatikan", "Efek suara interaktif dinonaktifkan.", "fa-volume-xmark");
+            } else {
+                btn.innerHTML = '<i class="fa-solid fa-volume-high text-lg text-yellow-400"></i>';
+                showToast("Suara Aktif", "Efek suara interaktif diaktifkan.", "fa-volume-high");
+            }
+        }
+
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            } else {
+                if (document.exitFullscreen) document.exitFullscreen();
+            }
+        }
+
+        function showToast(title, msg, icon = 'fa-circle-check', isWarning = false) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-title').innerText = title;
+            document.getElementById('toast-msg').innerText = msg;
+            
+            const iconContainer = document.getElementById('toast-icon');
+            iconContainer.className = isWarning ? "text-2xl text-amber-400" : "text-2xl text-scratch-yellow";
+            iconContainer.innerHTML = `<i class="fa-solid ${icon}"></i>`;
+
+            toast.classList.remove('translate-x-full');
+            setTimeout(() => {
+                toast.classList.add('translate-x-full');
+            }, 3000);
+        }
+
+        /* Module Switcher Engine */
+        function switchModule(modId) {
+            playSound('click');
+            currentModule = modId;
+            document.querySelectorAll('.module-section').forEach(sec => sec.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-scratch-orange', 'text-white', 'shadow-md');
+                btn.classList.add('bg-slate-700', 'text-slate-300');
+            });
+
+            const activeTab = document.getElementById(`tab-mod-${modId}`);
+            if (activeTab) {
+                activeTab.classList.remove('bg-slate-700', 'text-slate-300');
+                activeTab.classList.add('bg-scratch-orange', 'text-white', 'shadow-md');
+            }
+
+            const targetMod = document.getElementById(`module-${modId}`);
+            if (targetMod) targetMod.classList.remove('hidden');
+
+            if (modId === 2) {
+                renderMod2CurrentGroup();
+            } else if (modId === 3) {
+                renderMod3CurrentGroup();
+            } else if (modId === 4 && !quizState.started) {
+                startQuiz();
+            } else if (modId === 5) {
+                renderClassGradesTable();
+            }
+        }
+
+        /* Group Selector Bar */
+        function renderGroupScoreBar() {
+            const container = document.getElementById('group-score-bar');
+            container.innerHTML = [1, 2, 3, 4, 5].map(num => `
+                <button onclick="selectActiveGroup(${num})" class="px-2.5 py-1 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${activeGroup === num ? 'bg-scratch-purple text-white shadow ring-2 ring-purple-300' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">
+                    <span>K${num}:</span>
+                    <span id="group-score-val-${num}">${groupScores[num]}</span>
+                </button>
+            `).join('');
+        }
+
+        function selectActiveGroup(num) {
+            playSound('click');
+            activeGroup = num;
+            renderGroupScoreBar();
+            const activeTag = document.getElementById('quiz-active-group-tag');
+            if (activeTag) activeTag.innerText = `Kelompok ${num}`;
+
+            if (currentModule === 2) renderMod2CurrentGroup();
+            if (currentModule === 3) renderMod3CurrentGroup();
+        }
+
+        /* MODUL 1 SUB-TABS LOGIC */
+        function switchMod1SubTab(tab) {
+            playSound('click');
+            const interfaceBtn = document.getElementById('subtab-interface');
+            const categoriesBtn = document.getElementById('subtab-categories');
+            const interfaceSec = document.getElementById('mod1-sub-interface');
+            const categoriesSec = document.getElementById('mod1-sub-categories');
+
+            if (tab === 'interface') {
+                interfaceBtn.className = "flex-1 sm:flex-none px-4 py-2 rounded-xl font-display font-bold text-xs sm:text-sm transition bg-scratch-orange text-white shadow";
+                categoriesBtn.className = "flex-1 sm:flex-none px-4 py-2 rounded-xl font-display font-bold text-xs sm:text-sm transition text-slate-600 hover:text-slate-900";
+                interfaceSec.classList.remove('hidden');
+                categoriesSec.classList.add('hidden');
+            } else {
+                categoriesBtn.className = "flex-1 sm:flex-none px-4 py-2 rounded-xl font-display font-bold text-xs sm:text-sm transition bg-scratch-orange text-white shadow";
+                interfaceBtn.className = "flex-1 sm:flex-none px-4 py-2 rounded-xl font-display font-bold text-xs sm:text-sm transition text-slate-600 hover:text-slate-900";
+                categoriesSec.classList.remove('hidden');
+                interfaceSec.classList.add('hidden');
+            }
+        }
+
+        /* SCRATCH GUI INTERFACE DATA & INSPECTION */
+        const guiPartsData = {
+            toolbar: {
+                badge: "Komponen 1 dari 5",
+                title: "Menu Bar & Toolbar Utama",
+                icon: "fa-window-maximize",
+                color: "bg-amber-500",
+                desc: "Area bagian atas layar Scratch yang digunakan untuk mengubah pilihan bahasa, menyimpan file proyek (.sb3), memuat file dari komputer, serta membuka halaman tutorial.",
+                func: "Pengaturan sistem file proyek, pilihan bahasa antarmuka, dan akses tutorial."
+            },
+            palette: {
+                badge: "Komponen 2 dari 5",
+                title: "Block Palette (Katalog Blok)",
+                icon: "fa-icons",
+                color: "bg-blue-500",
+                desc: "Tempat menyimpan seluruh kelompok blok koding yang dikelompokkan berdasarkan warna dan fungsi (seperti Gerak, Tampilan, Suara, Kejadian, dan Kontrol).",
+                func: "Penyedia blok perintah visual yang dapat ditarik (drag) ke Script Area."
+            },
+            workspace: {
+                badge: "Komponen 3 dari 5",
+                title: "Script Area / Workspace (Area Kerja)",
+                icon: "fa-layer-group",
+                color: "bg-purple-500",
+                desc: "Lembar kerja utama tempat Anda menyusun, menyambungkan, dan merangkai blok-blok koding dari Palette menjadi sebuah algoritma program yang utuh.",
+                func: "Tempat merangkai logika dan alur program untuk dikerjakan oleh Objek/Sprite."
+            },
+            stage: {
+                badge: "Komponen 4 dari 5",
+                title: "Stage (Panggung Utama)",
+                icon: "fa-desktop",
+                color: "bg-emerald-500",
+                desc: "Layar eksekusi tempat Objek (Sprite) bergerak, beraksi, menyapa, dan berinteraksi. Koordinat panggung terbagi atas sumbu X (-240 hingga 240) dan sumbu Y (-180 hingga 180).",
+                func: "Visualisasi hasil eksekusi program koding secara nyata."
+            },
+            spritelist: {
+                badge: "Komponen 5 dari 5",
+                title: "Panel Sprite & Backdrop (Latar)",
+                icon: "fa-images",
+                color: "bg-pink-500",
+                desc: "Panel bagian bawah panggung untuk menambah, menghapus, atau memilih Objek (Sprite) serta mengganti latar belakang panggung (Backdrop).",
+                func: "Pengelolaan daftar karakter objek gambar dan latar gambar panggung."
+            }
+        };
+
+        function inspectInterfacePart(partKey) {
+            playSound('click');
+            const data = guiPartsData[partKey];
+            if (!data) return;
+
+            document.getElementById('gui-detail-badge').innerText = data.badge;
+            document.getElementById('gui-detail-title').innerText = data.title;
+            document.getElementById('gui-detail-desc').innerText = data.desc;
+            document.getElementById('gui-detail-function').innerText = data.func;
+
+            const iconContainer = document.getElementById('gui-detail-icon');
+            iconContainer.className = `w-14 h-14 ${data.color} text-white rounded-2xl flex items-center justify-center text-2xl font-bold flex-shrink-0 shadow-md`;
+            iconContainer.innerHTML = `<i class="fa-solid ${data.icon}"></i>`;
+
+            showToast("Komponen Antarmuka", data.title);
+        }
+
+        /* MODUL 1B: EXPLORE & MATCH LOGIC */
+        const mod1Data = [
+            { id: 'motion', name: 'Gerak (Motion)', color: 'bg-blue-500', title: 'Blok Gerak (Motion)', desc: 'Mengatur pergerakan posisi Sprite di layar panggung (seperti bergerak maju, berputar, atau melompat ke koordinat X/Y).', example: 'pindah 10 langkah' },
+            { id: 'looks', name: 'Tampilan (Looks)', color: 'bg-purple-500', title: 'Blok Tampilan (Looks)', desc: 'Mengontrol penampilan Sprite, pesan dialog, kostum visual, dan efek grafis.', example: 'katakan "Halo!" selama 2 detik' },
+            { id: 'sound', name: 'Suara (Sound)', color: 'bg-pink-500', title: 'Blok Suara (Sound)', desc: 'Memutar efek suara instrumen atau rekaman audio pada proyek Scratch.', example: 'mainkan suara "Meow" sampai selesai' },
+            { id: 'events', name: 'Kejadian (Events)', color: 'bg-amber-500', title: 'Blok Kejadian (Events)', desc: 'Pemicu (trigger) awal utama agar sekumpulan blok perintah mulai dijalankan.', example: 'ketika bendera hijau diklik' },
+            { id: 'control', name: 'Kontrol (Control)', color: 'bg-orange-500', title: 'Blok Kontrol (Control)', desc: 'Mengatur alur jalannya algoritma seperti perulangan (looping) dan pengondisian (if-then).', example: 'selamanya / ulangi 10 kali' }
+        ];
+
+        let mod1Visited = new Set();
+
+        function renderMod1Labels() {
+            const container = document.getElementById('mod1-categories');
+            container.innerHTML = mod1Data.map(item => `
+                <button onclick="inspectMod1('${item.id}')" class="scratch-block w-full p-4 rounded-2xl ${item.color} text-white font-display font-bold text-base flex items-center justify-between shadow-md active:scale-98">
+                    <span>${item.name}</span>
+                    <i class="fa-solid fa-chevron-right text-sm"></i>
+                </button>
+            `).join('');
+        }
+
+        function inspectMod1(id) {
+            playSound('click');
+            const item = mod1Data.find(d => d.id === id);
+            if (!item) return;
+
+            mod1Visited.add(id);
+            document.getElementById('mod1-selected-title').innerText = item.title;
+            document.getElementById('mod1-selected-desc').innerText = item.desc;
+            document.getElementById('mod1-example-code').innerText = item.example;
+            document.getElementById('mod1-example-box').classList.remove('hidden');
+
+            document.getElementById('mod1-progress-text').innerText = `${mod1Visited.size} / 5`;
+
+            if (mod1Visited.size === 5) {
+                playSound('success');
+                confetti({ particleCount: 50, spread: 50, origin: { y: 0.7 } });
+                showToast("Eksplorasi Selesai!", "Kamu telah mengenali seluruh 5 kategori utama blok Scratch!");
+            }
+        }
+
+        function resetMod1() {
+            mod1Visited.clear();
+            document.getElementById('mod1-selected-title').innerText = "Pilih Salah Satu Blok";
+            document.getElementById('mod1-selected-desc').innerText = "Klik tombol kategori di samping kiri untuk mengeksplorasi fungsi dan contoh penggunaannya dalam koding Scratch.";
+            document.getElementById('mod1-example-box').classList.add('hidden');
+            document.getElementById('mod1-progress-text').innerText = "0 / 5";
+        }
+
+        /* MODUL 2 LOGIC: PUZZLE KELOMPOK 1–5 */
+        const mod2GroupData = {
+            1: {
+                title: "Tujuan: Menyapa, Menunggu 2 Detik, & Melangkah",
+                scenario: "Buat Kucing Scratch menyapa teman, menunggu 2 detik, lalu melangkah maju!",
+                blocks: [
+                    { id: '1-1', text: 'pindah 10 langkah', color: 'bg-blue-500' },
+                    { id: '1-2', text: 'ketika bendera hijau diklik', color: 'bg-amber-500' },
+                    { id: '1-3', text: 'tunggu 2 detik', color: 'bg-orange-500' },
+                    { id: '1-4', text: 'katakan "Halo Kawan!"', color: 'bg-purple-500' }
+                ],
+                correctOrder: ['1-2', '1-4', '1-3', '1-1']
+            },
+            2: {
+                title: "Tujuan: Bersuara Meow, Berganti Kostum, & Maju 15 Langkah",
+                scenario: "Buat Kucing Scratch bersuara \"Meow\", berganti kostum berlari, lalu maju 15 langkah!",
+                blocks: [
+                    { id: '2-1', text: 'pindah 15 langkah', color: 'bg-blue-500' },
+                    { id: '2-2', text: 'mainkan suara Meow sampai selesai', color: 'bg-pink-500' },
+                    { id: '2-3', text: 'ketika bendera hijau diklik', color: 'bg-amber-500' },
+                    { id: '2-4', text: 'berikutnya kostum', color: 'bg-purple-500' }
+                ],
+                correctOrder: ['2-3', '2-2', '2-4', '2-1']
+            },
+            3: {
+                title: "Tujuan: Berputar Kanan, Salam Semangat, & Putar Kiri",
+                scenario: "Buat Kucing Scratch berputar ke kanan, memberi salam semangat, lalu berputar kembali ke posisi awal!",
+                blocks: [
+                    { id: '3-1', text: 'katakan "Semangat Belajar Koding!" selama 2 detik', color: 'bg-purple-500' },
+                    { id: '3-2', text: 'ketika bendera hijau diklik', color: 'bg-amber-500' },
+                    { id: '3-3', text: 'putar kanan 90 derajat', color: 'bg-blue-500' },
+                    { id: '3-4', text: 'putar kiri 90 derajat', color: 'bg-blue-600' }
+                ],
+                correctOrder: ['3-2', '3-3', '3-1', '3-4']
+            },
+            4: {
+                title: "Tujuan: Menghilang, Menunggu 1 Detik, Muncul & Melompat",
+                scenario: "Buat Kucing Scratch bersembunyi (menghilang), menunggu 1 detik, lalu muncul kembali dan melompat ke atas!",
+                blocks: [
+                    { id: '4-1', text: 'tampilkan', color: 'bg-purple-500' },
+                    { id: '4-2', text: 'ketika bendera hijau diklik', color: 'bg-amber-500' },
+                    { id: '4-3', text: 'sembunyikan', color: 'bg-purple-600' },
+                    { id: '4-4', text: 'tunggu 1 detik', color: 'bg-orange-500' },
+                    { id: '4-5', text: 'ubah y sebesar 20', color: 'bg-blue-500' }
+                ],
+                correctOrder: ['4-2', '4-3', '4-4', '4-1', '4-5']
+            },
+            5: {
+                title: "Tujuan: Bertanya Nama & Mengucapkan Salam Kenal",
+                scenario: "Buat Kucing Scratch bertanya nama pengguna, menunggu masukan jawaban, lalu mengucapkan salam kenal!",
+                blocks: [
+                    { id: '5-1', text: 'tanya "Siapa namamu?" dan tunggu', color: 'bg-cyan-600' },
+                    { id: '5-2', text: 'katakan "Salam kenal!" selama 2 detik', color: 'bg-purple-500' },
+                    { id: '5-3', text: 'ketika bendera hijau diklik', color: 'bg-amber-500' }
+                ],
+                correctOrder: ['5-3', '5-1', '5-2']
+            }
+        };
+
+        let mod2WorkspaceState = { 1: [], 2: [], 3: [], 4: [], 5: [] };
+
+        function renderMod2CurrentGroup() {
+            const data = mod2GroupData[activeGroup];
+            document.getElementById('mod2-group-badge').innerText = `Kelompok ${activeGroup}`;
+            document.getElementById('mod2-title-text').innerText = data.title;
+            document.getElementById('mod2-scenario-text').innerText = data.scenario;
+
+            document.querySelectorAll('.mod2-group-btn').forEach(btn => {
+                const g = parseInt(btn.getAttribute('data-g'));
+                if (g === activeGroup) {
+                    btn.className = "mod2-group-btn px-2.5 py-1.5 rounded-xl font-display font-bold text-xs bg-scratch-purple text-white shadow";
+                } else {
+                    btn.className = "mod2-group-btn px-2.5 py-1.5 rounded-xl font-display font-bold text-xs text-slate-600 hover:text-slate-900";
+                }
+            });
+
+            const resBox = document.getElementById('mod2-result-msg');
+            resBox.classList.add('hidden');
+
+            renderMod2Blocks();
+        }
+
+        function renderMod2Blocks() {
+            const data = mod2GroupData[activeGroup];
+            const currentWorkspace = mod2WorkspaceState[activeGroup];
+
+            const availContainer = document.getElementById('mod2-available-blocks');
+            availContainer.innerHTML = data.blocks.map(item => {
+                const isUsed = currentWorkspace.some(w => w.id === item.id);
+                return `
+                    <button onclick="addMod2Block('${item.id}')" ${isUsed ? 'disabled class="opacity-30 cursor-not-allowed w-full p-3.5 bg-slate-200 text-slate-500 rounded-xl font-bold text-xs text-left"' : `class="scratch-block w-full p-3.5 ${item.color} text-white rounded-xl font-bold text-xs text-left shadow active:scale-98"`}>
+                        <i class="fa-solid fa-puzzle-piece mr-1.5 opacity-80"></i>${item.text}
+                    </button>
+                `;
+            }).join('');
+
+            const workContainer = document.getElementById('mod2-workspace-blocks');
+            if (currentWorkspace.length === 0) {
+                workContainer.innerHTML = `<p class="text-xs text-slate-400 italic py-10 text-center">Sentuh/klik blok di sebelah kiri untuk menyusunnya ke lembar kerja ini.</p>`;
+            } else {
+                workContainer.innerHTML = currentWorkspace.map((item, idx) => `
+                    <div class="scratch-block p-3.5 ${item.color} text-white rounded-xl font-bold text-xs flex justify-between items-center shadow">
+                        <span><strong class="bg-black/20 px-2 py-0.5 rounded mr-2">${idx + 1}</strong> ${item.text}</span>
+                        <button onclick="removeMod2Block(${idx})" class="text-xs bg-black/20 hover:bg-black/40 px-2 py-1 rounded transition" title="Hapus Blok">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function addMod2Block(blockId) {
+            playSound('click');
+            const data = mod2GroupData[activeGroup];
+            const blockObj = data.blocks.find(b => b.id === blockId);
+            if (blockObj && !mod2WorkspaceState[activeGroup].some(w => w.id === blockId)) {
+                mod2WorkspaceState[activeGroup].push(blockObj);
+                renderMod2Blocks();
+            }
+        }
+
+        function removeMod2Block(index) {
+            playSound('click');
+            mod2WorkspaceState[activeGroup].splice(index, 1);
+            renderMod2Blocks();
+        }
+
+        function resetMod2GroupPuzzle() {
+            playSound('click');
+            mod2WorkspaceState[activeGroup] = [];
+            renderMod2CurrentGroup();
+        }
+
+        function checkMod2Puzzle() {
+            const data = mod2GroupData[activeGroup];
+            const userOrder = mod2WorkspaceState[activeGroup].map(b => b.id);
+            const resBox = document.getElementById('mod2-result-msg');
+            resBox.classList.remove('hidden', 'bg-green-100', 'text-green-800', 'bg-rose-100', 'text-rose-800');
+
+            if (userOrder.length !== data.correctOrder.length) {
+                playSound('error');
+                resBox.classList.add('bg-rose-100', 'text-rose-800');
+                resBox.innerText = `Jumlah blok belum lengkap! Gunakan seluruh ${data.correctOrder.length} blok yang tersedia.`;
+                return;
+            }
+
+            const isCorrect = userOrder.every((val, index) => val === data.correctOrder[index]);
+
+            if (isCorrect) {
+                playSound('success');
+                resBox.classList.add('bg-green-100', 'text-green-800');
+                resBox.innerText = `Sempurna! Urutan algoritma Kelompok ${activeGroup} tepat & sesuai skenario! (+10 Poin Kelompok)`;
+                confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+                groupScores[activeGroup] += 10;
+                renderGroupScoreBar();
+            } else {
+                playSound('error');
+                resBox.classList.add('bg-rose-100', 'text-rose-800');
+                resBox.innerText = `Masih ada kesalahan urutan! Perhatikan pemicu awal (Events/Bendera Hijau) dan alur pergerakan.`;
+            }
+        }
+
+        /* MODUL 3 LOGIC: DEBUGGING LAB KELOMPOK 1-5 */
+        const mod3GroupData = {
+            1: {
+                problem: "Kelompok 1: Kucing Scratch berjalan terus-menerus tanpa henti hingga keluar dari panggung!",
+                buggyCode: [
+                    { text: 'ketika bendera hijau diklik', color: 'bg-amber-500' },
+                    { text: 'selamanya', color: 'bg-orange-500' },
+                    { text: '   pindah 10 langkah', color: 'bg-blue-500 font-mono ml-4' },
+                    { text: '   [Sertakan Blok Perbaikan Di Sini]', color: 'bg-rose-600 text-white font-bold ml-4 border-2 border-yellow-300 glow-active' }
+                ],
+                options: [
+                    { key: 'A', text: 'Pasang blok "jika di pinggir, pantulkan"', correct: true },
+                    { key: 'B', text: 'Hapus blok "selamanya"', correct: false },
+                    { key: 'C', text: 'Ganti dengan "hentikan semua"', correct: false }
+                ],
+                explanation: "Jawaban Tepat: A (Blok 'jika di pinggir, pantulkan' mencegah Sprite keluar dari layar panggung saat looping berjalan)."
+            },
+            2: {
+                problem: "Kelompok 2: Saat tombol bendera hijau diklik, Kucing Scratch tidak mau bergerak atau merespons sama sekali padahal perintah sudah disusun!",
+                buggyCode: [
+                    { text: '[Sertakan Blok Perbaikan Di Sini]', color: 'bg-rose-600 text-white font-bold border-2 border-yellow-300 glow-active' },
+                    { text: 'pindah 10 langkah', color: 'bg-blue-500' },
+                    { text: 'katakan "Halo!"', color: 'bg-purple-500' }
+                ],
+                options: [
+                    { key: 'A', text: 'Tambahkan blok "tunggu 1 detik" di paling bawah', correct: false },
+                    { key: 'B', text: 'Pasang blok "ketika bendera hijau diklik" di paling atas sebagai pemicu', correct: true },
+                    { key: 'C', text: 'Ganti blok "pindah 10 langkah" dengan "putar 15 derajat"', correct: false }
+                ],
+                explanation: "Jawaban Tepat: B (Program membutuhkan pemicu/event awal agar blok perintah di bawahnya dapat dijalankan)."
+            },
+            3: {
+                problem: "Kelompok 3: Animasi pergantian kostum Kucing Scratch terjadi sangat cepat dan berkedip tidak jelas saat dijalankan dalam perulangan!",
+                buggyCode: [
+                    { text: 'ketika bendera hijau diklik', color: 'bg-amber-500' },
+                    { text: 'selamanya', color: 'bg-orange-500' },
+                    { text: '   berikutnya kostum', color: 'bg-purple-500 font-mono ml-4' },
+                    { text: '   [Sertakan Blok Perbaikan Di Sini]', color: 'bg-rose-600 text-white font-bold ml-4 border-2 border-yellow-300 glow-active' }
+                ],
+                options: [
+                    { key: 'A', text: 'Tambahkan blok "tunggu 0.2 detik" di dalam blok selamanya', correct: true },
+                    { key: 'B', text: 'Hapus blok "berikutnya kostum"', correct: false },
+                    { key: 'C', text: 'Pasang blok "sembunyikan"', correct: false }
+                ],
+                explanation: "Jawaban Tepat: A (Memberikan jeda waktu agar animasi perpindahan kostum dapat terlihat jelas oleh mata)."
+            },
+            4: {
+                problem: "Kelompok 4: Saat Kucing Scratch memantul di batas tepi panggung, posisinya menjadi terbalik (kepala di bawah dan kaki di atas)!",
+                buggyCode: [
+                    { text: 'ketika bendera hijau diklik', color: 'bg-amber-500' },
+                    { text: 'selamanya', color: 'bg-orange-500' },
+                    { text: '   pindah 10 langkah', color: 'bg-blue-500 ml-4' },
+                    { text: '   jika di pinggir, pantulkan', color: 'bg-blue-600 ml-4' },
+                    { text: '   [Sertakan Blok Perbaikan Di Sini]', color: 'bg-rose-600 text-white font-bold ml-4 border-2 border-yellow-300 glow-active' }
+                ],
+                options: [
+                    { key: 'A', text: 'Pasang blok "atur mode rotasi [kiri-kanan]"', correct: true },
+                    { key: 'B', text: 'Hapus blok "jika di pinggir, pantulkan"', correct: false },
+                    { key: 'C', text: 'Ganti dengan blok "sembunyikan"', correct: false }
+                ],
+                explanation: "Jawaban Tepat: A (Mengatur gaya rotasi agar karakter hanya menghadap kiri dan kanan tanpa terbalik)."
+            },
+            5: {
+                problem: "Kelompok 5: Kucing Scratch langsung mengucapkan \"Dada!\" tanpa sempat terlihat mengucapkan kalimat \"Halo!\" terlebih dahulu!",
+                buggyCode: [
+                    { text: 'ketika bendera hijau diklik', color: 'bg-amber-500' },
+                    { text: 'katakan "Halo!"', color: 'bg-purple-500' },
+                    { text: '[Sertakan Blok Perbaikan Di Sini]', color: 'bg-rose-600 text-white font-bold border-2 border-yellow-300 glow-active' },
+                    { text: 'katakan "Dada!"', color: 'bg-purple-600' }
+                ],
+                options: [
+                    { key: 'A', text: 'Pasang blok "tunggu 2 detik" di antara kedua ucapan', correct: true },
+                    { key: 'B', text: 'Hapus blok "katakan \'Halo!\'"', correct: false },
+                    { key: 'C', text: 'Ganti dengan "hentikan semua"', correct: false }
+                ],
+                explanation: "Jawaban Tepat: A (Memberikan jeda waktu agar ucapan pertama sempat terbaca sebelum tertimpa ucapan kedua)."
+            }
+        };
+
+        function renderMod3CurrentGroup() {
+            const data = mod3GroupData[activeGroup];
+            document.getElementById('mod3-group-badge').innerText = `Kelompok ${activeGroup}`;
+            document.getElementById('mod3-problem-text').innerText = data.problem;
+
+            document.querySelectorAll('.mod3-group-btn').forEach(btn => {
+                const g = parseInt(btn.getAttribute('data-g'));
+                if (g === activeGroup) {
+                    btn.className = "mod3-group-btn px-3 py-1.5 rounded-xl font-display font-bold text-xs bg-rose-600 text-white shadow";
+                } else {
+                    btn.className = "mod3-group-btn px-3 py-1.5 rounded-xl font-display font-bold text-xs text-slate-600 hover:text-slate-900";
+                }
+            });
+
+            const codeContainer = document.getElementById('mod3-buggy-code-container');
+            codeContainer.innerHTML = data.buggyCode.map(item => `
+                <div class="${item.color} px-4 py-2.5 rounded-xl font-bold text-xs shadow-sm">
+                    ${item.text}
+                </div>
+            `).join('');
+
+            const optContainer = document.getElementById('mod3-options');
+            optContainer.innerHTML = data.options.map((opt, idx) => `
+                <button onclick="selectMod3GroupOption(${idx})" class="w-full p-3.5 bg-white hover:bg-blue-50 border-2 border-slate-200 rounded-xl text-left font-display font-semibold text-xs text-slate-800 transition flex items-center justify-between shadow-sm active:scale-98">
+                    <span><strong>${opt.key}.</strong> ${opt.text}</span>
+                    <i class="fa-solid fa-circle-check text-slate-300 text-lg"></i>
+                </button>
+            `).join('');
+
+            const status = document.getElementById('mod3-status');
+            status.className = "mt-4 p-4 rounded-2xl bg-white border border-slate-200 text-xs font-bold text-slate-600 text-center";
+            status.innerText = "Pilih salah satu solusi perbaikan di atas.";
+        }
+
+        function selectMod3GroupOption(optionIdx) {
+            const data = mod3GroupData[activeGroup];
+            const chosen = data.options[optionIdx];
+            const status = document.getElementById('mod3-status');
+
+            if (chosen.correct) {
+                playSound('success');
+                status.className = "mt-4 p-4 rounded-2xl bg-green-100 text-green-800 text-xs font-bold text-center border border-green-200";
+                status.innerText = `Sempurna! ${data.explanation} (+10 Poin Kelompok)`;
+                confetti({ particleCount: 60, spread: 60, origin: { y: 0.6 } });
+                groupScores[activeGroup] += 10;
+                renderGroupScoreBar();
+            } else {
+                playSound('error');
+                status.className = "mt-4 p-4 rounded-2xl bg-rose-100 text-rose-800 text-xs font-bold text-center border border-rose-200";
+                status.innerText = `Kurang Tepat. Pilihan tersebut belum memecahkan masalah koding kelompokmu. Coba analisis lagi!`;
+            }
+        }
+
+        /* =======================================================
+           MODUL 4: INTERACTIVE GROUP QUIZ (MENYAJIKAN 20 BANK SOAL)
+        ======================================================= */
+        let groupQuizQuestions = [];
+
+        let quizState = {
+            currentIndex: 0,
+            score: 0,
+            timer: 30,
+            interval: null,
+            started: false
+        };
+
+        function startQuiz() {
+            groupQuizQuestions = [...masterBankSoal]; // Gunakan seluruh 20 Soal
+            quizState.started = true;
+            quizState.currentIndex = 0;
+            quizState.score = 0;
+            document.getElementById('quiz-body').classList.remove('hidden');
+            document.getElementById('quiz-result').classList.add('hidden');
+            renderQuizQuestion();
+        }
+
+        function renderQuizQuestion() {
+            clearInterval(quizState.interval);
+            quizState.timer = 30;
+            document.getElementById('quiz-timer').innerText = `${quizState.timer}s`;
+
+            const q = groupQuizQuestions[quizState.currentIndex];
+            const progressPct = ((quizState.currentIndex) / groupQuizQuestions.length) * 100;
+            document.getElementById('quiz-progress').style.width = `${progressPct}%`;
+            document.getElementById('quiz-score-num').innerText = quizState.score;
+
+            const body = document.getElementById('quiz-body');
+            body.innerHTML = `
+                <div class="bg-slate-50 p-6 rounded-2xl border border-slate-200 mb-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-xs font-bold text-scratch-orange uppercase">Soal ${quizState.currentIndex + 1} dari ${groupQuizQuestions.length}</span>
+                        <span class="text-xs font-semibold text-purple-700 bg-purple-100 px-2.5 py-0.5 rounded-full">Giliran: Kelompok ${activeGroup}</span>
+                    </div>
+                    <h3 class="font-display text-xl sm:text-2xl font-bold text-slate-800 leading-snug">${q.q}</h3>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    ${q.options.map((opt, idx) => `
+                        <button onclick="submitQuizAnswer(${idx})" class="touch-btn p-4 bg-white hover:bg-slate-50 border-2 border-slate-200 hover:border-scratch-orange rounded-2xl text-left font-display font-semibold text-sm text-slate-800 shadow-sm transition flex items-center space-x-3 active:scale-98">
+                            <span class="w-8 h-8 rounded-lg bg-yellow-100 text-scratch-orange flex items-center justify-center font-bold text-xs">
+                                ${String.fromCharCode(65 + idx)}
+                            </span>
+                            <span class="flex-grow">${opt}</span>
+                        </button>
+                    `).join('')}
+                </div>
+            `;
+
+            quizState.interval = setInterval(() => {
+                quizState.timer--;
+                document.getElementById('quiz-timer').innerText = `${quizState.timer}s`;
+                if (quizState.timer <= 0) {
+                    clearInterval(quizState.interval);
+                    playSound('error');
+                    submitQuizAnswer(-1);
+                }
+            }, 1000);
+        }
+
+        function submitQuizAnswer(selectedIdx) {
+            clearInterval(quizState.interval);
+            const q = groupQuizQuestions[quizState.currentIndex];
+
+            if (selectedIdx === q.answer) {
+                playSound('success');
+                quizState.score += 5; // Total max 20 x 5 = 100
+                groupScores[activeGroup] += 5;
+                renderGroupScoreBar();
+                showToast("Jawaban Benar!", `Kelompok ${activeGroup} mendapatkan +5 Poin!`);
+            } else {
+                playSound('error');
+                showToast("Jawaban Kurang Tepat", "Tetap semangat untuk soal berikutnya!", "fa-circle-xmark", true);
+            }
+
+            // Rotasi giliran kelompok secara teratur (1 s.d. 5)
+            activeGroup = (activeGroup % 5) + 1;
+            renderGroupScoreBar();
+            const activeTag = document.getElementById('quiz-active-group-tag');
+            if (activeTag) activeTag.innerText = `Kelompok ${activeGroup}`;
+
+            quizState.currentIndex++;
+            if (quizState.currentIndex < groupQuizQuestions.length) {
+                setTimeout(renderQuizQuestion, 1000);
+            } else {
+                setTimeout(finishQuiz, 1000);
+            }
+        }
+
+        function finishQuiz() {
+            document.getElementById('quiz-body').classList.add('hidden');
+            document.getElementById('quiz-result').classList.remove('hidden');
+            document.getElementById('final-score-text').innerText = quizState.score;
+            document.getElementById('quiz-progress').style.width = '100%';
+
+            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        }
+
+        function restartQuiz() {
+            startQuiz();
+        }
+
+        /* =======================================================
+           MODUL 5: ASESMEN SUMATIF INDIVIDU (10 SOAL TERPILIH DARI BANK)
+        ======================================================= */
+        let activeSummativeQuestions = [];
+
+        let summativeState = {
+            studentName: '',
+            studentNo: '',
+            currentIndex: 0,
+            score: 0
+        };
+
+        window.classGradesList = [];
+
+        function startSummativeQuiz() {
+            const nameInput = document.getElementById('sum-student-name').value.trim();
+            const noInput = document.getElementById('sum-student-no').value.trim();
+
+            if (!nameInput || !noInput) {
+                showToast("Lengkapi Data", "Harap isi Nama Lengkap dan Nomor Absen terlebih dahulu!", "fa-circle-exclamation", true);
+                return;
+            }
+
+            playSound('click');
+            // Ambil 10 soal acak terstandar dari 20 Bank Soal
+            const shuffled = [...masterBankSoal].sort(() => 0.5 - Math.random());
+            activeSummativeQuestions = shuffled.slice(0, 10);
+
+            summativeState.studentName = nameInput;
+            summativeState.studentNo = noInput;
+            summativeState.currentIndex = 0;
+            summativeState.score = 0;
+
+            document.getElementById('sum-step-identity').classList.add('hidden');
+            document.getElementById('sum-step-result').classList.add('hidden');
+            document.getElementById('sum-step-quiz').classList.remove('hidden');
+
+            document.getElementById('sum-student-badge').innerText = `Siswa: ${nameInput} (Absen ${noInput})`;
+            renderSummativeQuestion();
+        }
+
+        function renderSummativeQuestion() {
+            const qData = activeSummativeQuestions[summativeState.currentIndex];
+            document.getElementById('sum-progress-text').innerText = `Soal ${summativeState.currentIndex + 1} dari ${activeSummativeQuestions.length}`;
+            document.getElementById('sum-question-text').innerText = qData.q;
+
+            const container = document.getElementById('sum-options-container');
+            container.innerHTML = qData.options.map((opt, idx) => `
+                <button onclick="submitSummativeAnswer(${idx})" class="touch-btn p-4 bg-white hover:bg-slate-50 border-2 border-slate-200 hover:border-scratch-blue rounded-2xl text-left font-display font-semibold text-sm text-slate-800 shadow-sm transition flex items-center space-x-3 active:scale-98">
+                    <span class="w-8 h-8 rounded-lg bg-blue-100 text-scratch-blue flex items-center justify-center font-bold text-xs">
+                        ${String.fromCharCode(65 + idx)}
+                    </span>
+                    <span class="flex-grow">${opt}</span>
+                </button>
+            `).join('');
+        }
+
+        function submitSummativeAnswer(selectedIdx) {
+            const qData = activeSummativeQuestions[summativeState.currentIndex];
+            if (selectedIdx === qData.answer) {
+                playSound('success');
+                summativeState.score += 10; // 10 Soal x 10 = 100 Poin
+            } else {
+                playSound('error');
+            }
+
+            summativeState.currentIndex++;
+            if (summativeState.currentIndex < activeSummativeQuestions.length) {
+                renderSummativeQuestion();
+            } else {
+                finishSummativeQuiz();
+            }
+        }
+
+        function finishSummativeQuiz() {
+            document.getElementById('sum-step-quiz').classList.add('hidden');
+            document.getElementById('sum-step-result').classList.remove('hidden');
+
+            document.getElementById('sum-result-student-name').innerText = `${summativeState.studentName} (Absen No. ${summativeState.studentNo})`;
+            document.getElementById('sum-final-score').innerText = summativeState.score;
+
+            const kkmBadge = document.getElementById('sum-kkm-badge');
+            if (summativeState.score >= 75) {
+                kkmBadge.className = "inline-block px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full";
+                kkmBadge.innerText = "Tuntas (Memenuhi KKM ≥75)";
+                confetti({ particleCount: 70, spread: 60, origin: { y: 0.6 } });
+            } else {
+                kkmBadge.className = "inline-block px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full";
+                kkmBadge.innerText = "Perlu Bimbingan Remedial (<75)";
+            }
+
+            const gradeRecord = {
+                no: summativeState.studentNo,
+                name: summativeState.studentName,
+                score: summativeState.score,
+                status: summativeState.score >= 75 ? 'Tuntas' : 'Remedial'
+            };
+
+            if (typeof window.saveGradeToCloud === 'function') {
+                window.saveGradeToCloud(gradeRecord);
+            }
+
+            if (!window.classGradesList) window.classGradesList = [];
+            const isAlreadyAdded = window.classGradesList.some(item => item.no === gradeRecord.no && item.name === gradeRecord.name);
+            if (!isAlreadyAdded) {
+                window.classGradesList.push(gradeRecord);
+            }
+
+            renderClassGradesTable();
+            showToast("Hasil Tersimpan", "Nilai berhasil terisi & tersinkronkan ke rekap kelas!");
+        }
+
+        function resetSummativeForm() {
+            document.getElementById('sum-student-name').value = '';
+            document.getElementById('sum-student-no').value = '';
+            document.getElementById('sum-step-result').classList.add('hidden');
+            document.getElementById('sum-step-identity').classList.remove('hidden');
+        }
+
+        function renderClassGradesTable() {
+            const tbody = document.getElementById('sum-grades-tbody');
+            if (!tbody) return;
+            const grades = window.classGradesList || [];
+
+            if (grades.length === 0) {
+                tbody.innerHTML = `
+                    <tr id="empty-grades-row">
+                        <td colspan="4" class="py-8 text-center text-slate-400 italic">
+                            Belum ada siswa yang menyelesaikan tes sumatif.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = grades.map((item) => `
+                <tr class="border-b border-slate-100 text-slate-700 animate-fade-in">
+                    <td class="py-2.5 font-bold text-slate-400">${item.no}</td>
+                    <td class="py-2.5 font-bold">${item.name}</td>
+                    <td class="py-2.5 text-center font-display font-extrabold ${item.score >= 75 ? 'text-green-600' : 'text-amber-600'}">${item.score}</td>
+                    <td class="py-2.5 text-right font-medium">
+                        <span class="px-2 py-0.5 rounded-md text-[10px] font-bold ${item.score >= 75 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}">
+                            ${item.status}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function clearClassGrades() {
+            if (!window.classGradesList || window.classGradesList.length === 0) return;
+            if (typeof window.clearCloudGrades === 'function') {
+                window.clearCloudGrades();
+            }
+            window.classGradesList = [];
+            renderClassGradesTable();
+            showToast("Tabel Dibersihkan", "Rekapitulasi nilai kelas telah direset.", "fa-trash", true);
+        }
+
+        function copyClassGrades() {
+            const grades = window.classGradesList || [];
+            if (grades.length === 0) {
+                showToast("Data Kosong", "Belum ada nilai siswa untuk disalin.", "fa-info-circle", true);
+                return;
+            }
+
+            let text = "REKAP NILAI SUMATIF INDIVIDU KKA (SCRATCH)\n";
+            text += "========================================\n";
+            grades.forEach(item => {
+                text += `Absen ${item.no}. ${item.name} : ${item.score} (${item.status})\n`;
+            });
+
+            const dummy = document.createElement("textarea");
+            document.body.appendChild(dummy);
+            dummy.value = text;
+            dummy.select();
+            document.execCommand("copy");
+            document.body.removeChild(dummy);
+
+            showToast("Tersalin!", "Ringkasan nilai kelas berhasil disalin ke clipboard!");
+        }
+
+        /* Initial Page Load Execution */
+        window.onload = function() {
+            renderGroupScoreBar();
+            renderMod1Labels();
+            switchModule(1);
+            if (typeof window.initCloudSync === 'function') {
+                window.initCloudSync();
+            }
+        };
+    </script>
+</body>
+</html>
